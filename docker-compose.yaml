@@ -1,19 +1,48 @@
 volumes:
   static:
+  media:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge
 
 services:
-
-  admin_panel:
-    build: .
-    volumes:
-      - ./static:/opt/static
-      - ./media:/opt/media
-    container_name: admin_panel
+  postgres:
+    image: postgres:16-alpine
+    container_name: shared_postgres
     environment:
-      - DJANGO_SETTINGS_MODULE=offersAdmin.settings.base
-    command: /bin/sh -c "python3 manage.py collectstatic --no-input && python3 manage.py migrate --no-input && gunicorn --bind 0.0.0.0:8000 --workers 2 offersAdmin.wsgi:application"
+      POSTGRES_DB: offersAdmin
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5158
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
     ports:
-      - "8000:8000"
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+
+  litestar:
+    build:
+      context: ./lifestar
+      dockerfile: Dockerfile
+    container_name: litestar
+    env_file:
+      - ./lifestar/app/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+    - "5000:5000"
+    networks:
+      - backend
     restart: unless-stopped
 
   nginx:
@@ -26,8 +55,10 @@ services:
       - ./nginx/ssl/default:/etc/ssl/default
       - ./nginx/ssl/.well-known:/opt/offersAdmin/.well-known
     ports:
-      - '443:443'
-      - '80:80'
+      - "443:443"
+      - "80:80"
     depends_on:
-      - admin_panel
+      - litestar
+    networks:
+      - backend
     restart: unless-stopped

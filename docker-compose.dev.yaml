@@ -15,6 +15,12 @@ services:
       - '7432:5432'
     volumes:
       - pgdbdata:/var/lib/postgresql/data/
+
+    healthcheck:                                
+      test: ["CMD-SHELL", "pg_isready -U postgres"] 
+      interval: 5s                               
+      timeout: 5s                                   
+      retries: 5  
     restart: always
 
   admin_panel:
@@ -28,10 +34,27 @@ services:
       - DJANGO_SETTINGS_MODULE=offersAdmin.settings.development
     command: /bin/sh -c "python3 manage.py collectstatic --no-input && python3 manage.py migrate --no-input && gunicorn --bind 0.0.0.0:8000 --reload --workers 2 offersAdmin.wsgi:application"
     depends_on:
-      - postgres
+      shared_postgres:
+        condition: service_healthy 
     ports:
       - "8000:8000"
     restart: unless-stopped
+
+  lifestar:
+    build:
+      context: ./litestar_service
+      dockerfile: Dockerfile
+    container_name: litestar
+    restart: always
+    depends_on:
+      - shared_postgres
+    command: >
+      sh -c "sleep 5 &&
+             granian --interface asgi app:app --host 0.0.0.0 --port 5000"
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"  
 
   nginx:
     build: ./nginx/conf
