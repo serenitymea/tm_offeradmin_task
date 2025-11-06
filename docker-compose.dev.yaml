@@ -1,32 +1,39 @@
 volumes:
   static:
-  pgdbdata: null
+  media:
+  pgdbdata:
+
+networks:
+  backend:
+    driver: bridge
 
 services:
   postgres:
     image: postgres:alpine
     container_name: pgdb
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=offersAdmin
-      - TZ=Europe/Kyiv
-    ports:
-      - '7432:5432'
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: offersAdmin
+      TZ: Europe/Kyiv
     volumes:
       - pgdbdata:/var/lib/postgresql/data/
-
-    healthcheck:                                
-      test: ["CMD-SHELL", "pg_isready -U postgres"] 
-      interval: 5s                               
-      timeout: 5s                                   
-      retries: 5  
+    networks:
+      - backend
+    ports:
+      - "7432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: always
 
   admin_panel:
     build: .
     volumes:
       - ./static:/opt/static
+      - ./media:/opt/media
       - ./offersAdmin:/opt/offersAdmin
       - ./admin_panel:/opt/admin_panel
     container_name: admin_panel
@@ -34,39 +41,49 @@ services:
       - DJANGO_SETTINGS_MODULE=offersAdmin.settings.development
     command: /bin/sh -c "python3 manage.py collectstatic --no-input && python3 manage.py migrate --no-input && gunicorn --bind 0.0.0.0:8000 --reload --workers 2 offersAdmin.wsgi:application"
     depends_on:
-      shared_postgres:
-        condition: service_healthy 
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
+    networks:
+      - backend
     restart: unless-stopped
 
-  lifestar:
+  litestar:
     build:
-      context: ./litestar_service
+      context: ./lifestar
       dockerfile: Dockerfile
     container_name: litestar
-    restart: always
+    working_dir: /app
     depends_on:
-      - shared_postgres
+      postgres:
+        condition: service_healthy
     command: >
       sh -c "sleep 5 &&
-             granian --interface asgi app:app --host 0.0.0.0 --port 5000"
+            granian --interface asgi app.__main__:app --host 0.0.0.0 --port 5000"
     env_file:
       - .env
     ports:
-      - "5000:5000"  
+      - "5000:5000"
+    networks:
+      - backend
+    restart: always
 
   nginx:
     build: ./nginx/conf
     container_name: nginx
     volumes:
       - ./static:/opt/static
+      - ./media:/opt/media
       - ./nginx/conf:/etc/nginx/conf.d
       - ./nginx/ssl/default:/etc/ssl/default
       - ./nginx/ssl/.well-known:/opt/offersAdmin/.well-known
     ports:
-      - '443:443'
-      - '80:80'
+      - "443:443"
+      - "80:80"
     depends_on:
       - admin_panel
+      - litestar
+    networks:
+      - backend
     restart: unless-stopped

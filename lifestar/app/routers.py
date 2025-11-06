@@ -50,9 +50,13 @@ OFFER_CHOICES = [
 ]
 
 
-@get("/api/offerwalls/{token:uuid}/")
+@get(
+    "/api/offerwalls/{token:uuid}/",
+    dependencies={"session": Provide(get_session)},
+    )
 async def retrieve_offerwall(
-    token: UUID, session: Annotated[AsyncSession, Provide(get_session)]
+    token: UUID, session: AsyncSession
+    
 ) -> OfferWallSchema:
     """
     OfferWall token with offers.
